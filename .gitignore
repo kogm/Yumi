@@ -1,0 +1,13 @@
+#Éú³ÉµÄsource.map
+*.js.map
+
+#vscode
+/.vscode/*
+
+#node_modules
+/node_modules/*
+
+
+#.gitignore
+
+/npm-debug.log
