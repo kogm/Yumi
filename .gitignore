@@ -1,7 +1,5 @@
-#Éú³ÉµÄsource.map
-*.js.map
-
-#vscode
+#ç”Ÿæˆçš„source.map
+*.js.mapç”Ÿæˆçš„
 /.vscode/*
 
 #node_modules
