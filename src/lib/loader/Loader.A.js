@@ -58,6 +58,7 @@
 	function NativeModule(name, deps, factory){
 		this.name = name;
 		this.deps = Commons.isArray( deps ) ? deps : [];
+		this.innerDeps = [];
 		this.factory = Commons.isFunction( factory ) ? factory : noop;
 
 		this.result = null;		// 模块执行的结果
@@ -69,13 +70,33 @@
 		this.exports = {};
 		this.loaded = false;
 
+		this.sourceText = factory.toString();
+
 		this.url = "";
+
+		this.requireProcessor();
 	}
+
+	NativeModule.prototype.requireProcessor = function(){
+		// require('') | require("")
+		var requireReg = /require\(['"]([^'"]+)['"]\)/g;
+		var deps = [], result;
+		/*while( (result = requireReg.exec( this.sourceText )) ){
+			deps.push( result[ 1 ] );
+		}*/
+		this.sourceText.replace(requireReg,function(word, $1, index, inputStr){
+			deps.push( $1 );
+		});
+		this.innerDeps = deps;
+	};
 
 	NativeModule._cache = {};
 	NativeModule._source = {};
 	NativeModule.getCache = function( id ){
 		return NativeModule._cache[ id ];
+	};
+	NativeModule.getSource = function( id ){
+		return NativeModule._source[ id ];
 	};
 
 
@@ -120,6 +141,7 @@
 
 			} else {	// 函数匿名模块
 				deps = [ "require", "exports", "module" ];
+				factory = id;
 			}
 		}
 
@@ -127,9 +149,12 @@
 
 		if( deps.length == 0 ){
 			moduleInstance.state = ModuleState.COMPLETE;
-			moduleInstance.result = moudle.factory();
-			moduleInstance.exports = moduleInstance.result;
-			moduleInstance.url = Commons.getPath( id );
+			try{
+				moduleInstance.result = moudle.factory();
+			}finally{
+				moduleInstance.exports = moduleInstance.result;
+				moduleInstance.url = Commons.getPath( id );
+			}
 			return ;
 		}
 
