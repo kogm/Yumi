@@ -1,2 +1,13 @@
 <meta charset="utf-8">
 <script type="text/javascript" src="Loader.A.js"></script>
+<script type="text/javascript">
+	require(['test/a'], function(a){
+		console.info(a);
+	});
+	
+	/*define('test', function(){
+		return function(){
+			console.info('test');
+		}
+	});*/
+</script>

@@ -92,9 +92,9 @@
 		createScriptNode : function( url ){
 			var scriptEl = _document.createElement('script');
 			scriptEl.src = url;
-			node.type = "text/javascript";
-			node.async = true;
-			node.charset = "utf-8";
+			scriptEl.type = "text/javascript";
+			scriptEl.async = true;
+			scriptEl.charset = "utf-8";
 			return scriptEl;
 		},
 		scripts : function(){
@@ -161,9 +161,9 @@
 			}
 
 			if( baseElement )
-				head.insertBefore( node, baseElement );
+				headElement.insertBefore( node, baseElement );
 			else
-				head.appendChild( node );
+				headElement.appendChild( node );
 
 			return node;
 		},
@@ -174,7 +174,7 @@
 	            node.rel = "stylesheet";
 	            node.href = url;
 	            node.id = id;
-	            head.appendChild( node );
+	            headElement.appendChild( node );
 	        }
 		},
 		removeScript : function( name ){
@@ -300,6 +300,12 @@
 			return ;
 		}
 		
+		if( !module ){	// 处理匿名主模块
+			var id = new Date().getTime(),
+			module = new NativeModule( id, deps, factory );
+			globalQueue[ id ] = module;
+		}
+
 		Commons.forEach(module.deps, function( name, index ){	// 进行依赖模块的加载操作
 			if( globalModules[ name ] ){	// 如果曾经加载过
 				module.alreadyCount ++;
@@ -313,7 +319,7 @@
 		if( module.alreadyCount === module.requireCount ){
 			Commons.fireModuleCallBack( module );
 		} else {
-			loadings.unshift( moudle.name );	// 添加到对头
+			loadings.unshift( module.name );	// 添加到对头
 		}
 	};
 
@@ -347,8 +353,9 @@
 
 		if( deps.length == 0 ){
 			moduleInstance.state = ModuleState.COMPLETE;
-			moduleInstance.result = moduleInstance.exports = moudle.factory();
+			moduleInstance.result = moduleInstance.exports = moduleInstance.factory();
 
+			globalModules[ id ] = moduleInstance;
 			moduleInstance.url = Commons.getPath( id );
 			return ;
 		}
