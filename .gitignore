@@ -9,3 +9,7 @@
 #.gitignore
 
 /npm-debug.log
+
+# JetBrains
+.idea
+*.iml
