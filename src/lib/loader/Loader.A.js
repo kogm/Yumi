@@ -135,7 +135,7 @@
 
 			delete globalQueue[ module.name ];
 		},
-		loadResource : function(){
+		loadResource : function( name ){
 			var id = name,
 				ret = this.getPath( name ),
 				ext;
@@ -151,13 +151,13 @@
 	        }
 		},
 		loadJS : function( src, name ){
-			var node = Util.createNode( src );
+			var node = Commons.createScriptNode( src );
 			node.setAttribute("data-loadName", name );
 
 			if( node.attachEvent ){
-				node.attachEvent( "onreadystatechange", Util.onScriptLoaded );
+				node.attachEvent( "onreadystatechange", Commons.onScriptLoaded );
 			} else {
-				node.addEventListener( "load", Util.onScriptLoaded, false );
+				node.addEventListener( "load", Commons.onScriptLoaded, false );
 			}
 
 			if( baseElement )
@@ -266,7 +266,6 @@
 	function NativeModule(name, deps, factory){
 		this.name = name;
 		this.deps = Commons.isArray( deps ) ? deps : [];
-		this.innerDeps = [];
 		this.factory = Commons.isFunction( factory ) ? factory : noop;
 
 		this.result = null;		// 模块执行的结果
@@ -291,20 +290,15 @@
 	 * @param  {function}   factory 模块执行完的回调函数
 	 * @return {void}           [description]
 	 */
-	var require = global.require = function( deps, factory){
+	var require = global.require = function( deps, factory, module){
 		if( Commons.isFunction( deps ) ){		// 修正参数
 			factory = deps;
 			deps = [];
 		}
 		if( !deps.length ){	// 没有依赖项的直接调用
-			factory.call( window );
+			factory();
 			return ;
 		}
-
-		var id = new Date().toString(),
-			module = new NativeModule( id, deps, factory );	// 设置主模块
-
-		globalQueue[ id ] = module;	//添加到全局队列里
 		
 		Commons.forEach(module.deps, function( name, index ){	// 进行依赖模块的加载操作
 			if( globalModules[ name ] ){	// 如果曾经加载过
@@ -319,7 +313,7 @@
 		if( module.alreadyCount === module.requireCount ){
 			Commons.fireModuleCallBack( module );
 		} else {
-			loadings.unshift( id );	// 添加到对头
+			loadings.unshift( moudle.name );	// 添加到对头
 		}
 	};
 
@@ -359,12 +353,15 @@
 			return ;
 		}
 
+		globalQueue[ id ] = moduleInstance;	//添加到全局队列里 表示有依赖项要进行加载
+
 		require( deps, function(){
-			var ret = factory.apply( moduleInstance, arguments );
+			var ret = factory.apply( undefined, arguments );
 
 			moduleInstance.state = ModuleState.COMPLETE;
 			moduleInstance.result = moduleInstance.exports = ret;
-		});
+
+		}, moduleInstance);
 	};
 
 
