@@ -2,11 +2,16 @@
 
 	// https://github.com/amdjs/amdjs-api/wiki/AMD
 	// https://github.com/amdjs/amdjs-api/blob/master/AMD.md
+	/**
+	 * define(id?, dependencies?, factory)
+	 */
 	
-	var hasRequire = typeof global.require === 'function';
+	var Yumi = global.Yumi;	// 
+
+	/*var hasRequire = typeof global.require === 'function';
 	var hasDefine = typeof global.define === 'function';
 
-	if( hasRequire && hasDefine )	return ;
+	if( hasRequire && hasDefine )	return ;*/
 
 	var _document = global.document,
 		baseElement = _document.getElementsByTagName("base")[0],
@@ -40,7 +45,7 @@
 		COMPLETE : 'complete'
 	};
 
-	var Commons = {
+	var TypeUitl = {
 		isArray : Array.isArray || function( _arr ){
 			return oString.call( _arr ) === '[object Array]';
 		},
@@ -49,7 +54,11 @@
 		},
 		isUndefined : function( obj ){
 			return typeof obj === 'undefined' || oString.call( obj ) === '[object Undefined]';
-		},
+		}
+	};
+
+
+	var Commons = {
 		getPath : function( url ){
 			var ret, basePath = config.basePath,
 				parent = basePath.substring(0, basePath.lastIndexOf("/"));	//去掉最后/
@@ -108,16 +117,22 @@
 				stack = exception.stack;
 			}
 			if( stack ){
-				stack = stack.split(/[@ ]/g).pop();
+				stack = stack.split(/[@ ]/g).pop();	// 取最后一行
 				stack = stack[ 0 ] === "(" ? stack.slice( 1, -1 ) : stack.replace(/\s/, "");
 				return stack.replace(/(:\d+)?:\d+$/i, "");
 			}
 		},
 		forEach : function( arr, fn ){
 			var i = 0, ln = arr.length;
-			for( ; i < ln; i ++ )
-				if( arr[i] && fn( arr[i], i, arr ) )
-					break;
+			var result = null;
+
+			for( ; i < ln; i ++ ){
+				if( arr[i] ){
+					result = fn( arr[i], i, arr ) ;
+					if( result === false )
+						break;
+				}
+			}
 		},
 		fireModuleCallBack : function( module ){
 			var id = module.name,
@@ -259,28 +274,70 @@
 	 * 模块定义，在定义时构造出来
 	 * @Author 草莓
 	 * @Date   2017-06-04
-	 * @param  {string}  name    模块名称
-	 * @param  {array}   deps    依赖项
-	 * @param  {function}   factory 构造函数
+	 * @param  {string}  		name    模块名称
+	 * @param  {array}   		deps    依赖项
+	 * @param  {function}   	factory 构造函数
+	 * @param  {boolean} 		isDefaultDeps 是否是默认参数
 	 */
-	function NativeModule(name, deps, factory){
+	function NativeModule(name, deps, factory, isDefaultDeps){
 		this.name = name;
 		this.deps = Commons.isArray( deps ) ? deps : [];
+		this.innerDeps = null;
+		this.isDefaultDeps = isDefaultDeps;
 		this.factory = Commons.isFunction( factory ) ? factory : noop;
 
-		this.result = null;		// 模块执行的结果
 		this.state = ModuleState.INITIALIZE;	// 设置初始化状态
 		
 		this.requireCount = this.deps.length;
 		this.alreadyCount = 0;
 		
-		this.exports = {};
-		this.loaded = false;
+		// module.exports = exports
+		this.module = {
+			exports : {};
+		};
+		this.exports = this.module.exports;
+		this.result = null;		// 模块执行的结果
 
 		this.sourceText = factory.toString();
 
 		this.url = "";
+		this.requireProcessor();
 	}
+	/**
+	 * 当没有依赖项时，分析函数内部依赖项
+	 * @Author   草莓
+	 * @DateTime 2017-06-05
+	 * @return   {[type]}   [description]
+	 */
+	NativeModule.prototype.requireProcessor = function(){
+		// require('') | require("")
+		var requireReg = /require\(['"]([^'"]+)['"]\)/g;
+		var deps = [], result;
+		/*while( (result = requireReg.exec( this.sourceText )) ){
+			deps.push( result[ 1 ] );
+		}*/
+		this.sourceText.replace(requireReg,function(word, $1, index, inputStr){
+			if( $1 != 'require' && $1 != 'exports' && $1 != 'module' )
+				deps.push( $1 );
+		});
+
+		this.innerDeps = deps.length > 0 ? deps : null;
+	};
+
+	NativeModule._cache = {};
+	NativeModule.getCache = function getCache( id ){
+		return NativeModule._cache[ id ];
+	};
+	NativeModule.setCache = function( id, instance ){
+		NativeModule._cache[ id ] = instance;
+	};
+	NativeModule.createModule = function createModule(id, deps, factory, isDefaultDeps){
+		if( !id ){
+			id = new Date().getTime();
+		}
+		return new NativeModule(id, deps, factory, isDefaultDeps);
+	};
+
 
 	/**
 	 * [require description]
@@ -289,15 +346,17 @@
 	 * @param  {arrray}   deps    依赖项
 	 * @param  {function}   factory 模块执行完的回调函数
 	 * @return {void}           [description]
+	 * @example
+	 * 	require(string)
+	 * 	require(array, function)
 	 */
-	var require = global.require = function( deps, factory, module){
+	Yumi.require = function( deps, factory, module){
 		if( Commons.isFunction( deps ) ){		// 修正参数
 			factory = deps;
 			deps = [];
 		}
 		if( !deps.length ){	// 没有依赖项的直接调用
-			factory();
-			return ;
+			return factory();
 		}
 		
 		if( !module ){	// 处理匿名主模块
@@ -322,59 +381,108 @@
 			loadings.unshift( module.name );	// 添加到对头
 		}
 	};
+	Yumi.require.toUrl = function toUrl( url ){};
+
+
+	/**
+	 * define前置参数过滤器
+	 * @Author   草莓
+	 * @DateTime 2017-06-05
+	 * @param    {[type]}   id       [description]
+	 * @param    {[type]}   deps     [description]
+	 * @param    {[type]}   factory  [description]
+	 * @param    {Function} callback [description]
+	 * @return   {[type]}            [description]
+	 */
+	var preDefineParamFilter = function preDefineParamFilter(id, deps, factory, callback){
+		var isDefaultDeps = false;
+		/**
+		 * define('name', function(){}) 没有依赖项
+		 * 表示函数的返回值就是当前模块的运行后的结果
+		 */
+		if( TypeUitl.isFunction( deps ) ){
+			factory = deps;
+			deps = [ "require", "exports", "module" ];	// 默认值
+			isDefaultDeps = true;
+		}
+
+		/**
+		 * define("const"|{}|function)
+		 * 直接定义一个模块的值, 作为一个匿名模块
+		 * 模块的名字应该默认为模块加载器请求的指定脚本的名字
+		 */
+		if( TypeUitl.isUndefined( deps ) ){
+			if( !TypeUitl.isFunction( id ) ){	// 第一个参数是非函数的匿名模块
+				deps = [];
+				factory = function(){
+					return id;
+				};
+
+			} else {	// 函数匿名模块
+				deps = [ "require", "exports", "module" ];
+				factory = id;
+				id = undefined;	// 重置为匿名模块
+				isDefaultDeps = true;
+			}
+		}
+
+		return callback( NativeModule.createModule(id, deps, factory, isDefaultDeps) );
+	};
 
 	/**
 	 * 模块定义
 	 * @Author 草莓
 	 * @Date   2017-06-04
-	 * @param  {string|Object|function}   id      一般情况下为模块的标识
-	 * @param  {array}   deps    依赖项
-	 * @param  {function}   factory 模块的构造函数
-	 * @return {void}           [description]
+	 * @param  {string|Object|function}   	id      一般情况下为模块的标识[可选]
+	 * @param  {array}   					deps    依赖项[可选]
+	 * @param  {function}   				factory 模块的构造函数
+	 * @return {void}           			[description]
 	 */
-	var define = global.define = function(id, deps, factory){
+	Yumi.define = function(id, deps, factory){
 
-		var cached = globalModules[ id ];
+		var cached = NativeModule.getCache[ id ];
 		if( cached ){
 			return cached.exports || cached.result;
 		}
-
-		/*
-			define('name', function(){}) 没有依赖项
-			表示函数的返回值就是当前模块的运行后的结果
+		/**
+		 * TODO 遗留问题
+		 * 匿名模块id更换和名称对应
+		 * 代码抽取
 		 */
-		if( Commons.isFunction( deps ) ){
-			factory = deps;
-			deps = [];
-		}
 
+		preDefineParamFilter(id, deps, factory, function(moduleInstance){
+			// 没有依赖项，或者是默认的依赖项
+			if( moduleInstance.deps.length == 0 || moduleInstance.isDefaultDeps){
+				moduleInstance.state = ModuleState.COMPLETE;
+				moduleInstance.url = Commons.getPath( moduleInstance.id );
 
-		var moduleInstance = new NativeModule( id, deps, factory );
+				var result = moduleInstance.factory.call( Yumi.require, moduleInstance.exports, moduleInstance.module );
+				if( !TypeUitl.isUndefined( result ) ){	// 如果有工厂函数you返回值，舍弃exports
+					moduleInstance.result = moduleInstance.module.exports = moduleInstance.exports = result;
+				}
 
-		if( deps.length == 0 ){
-			moduleInstance.state = ModuleState.COMPLETE;
-			moduleInstance.result = moduleInstance.exports = moduleInstance.factory();
+				NativeModule.setCache( moduleInstance.id, moduleInstance );
+				
+				return ;
+			}
 
-			globalModules[ id ] = moduleInstance;
-			moduleInstance.url = Commons.getPath( id );
-			return ;
-		}
+			globalQueue[ id ] = moduleInstance;	//添加到全局队列里 表示有依赖项要进行加载
 
-		globalQueue[ id ] = moduleInstance;	//添加到全局队列里 表示有依赖项要进行加载
+			Yumi.require( deps, function(){
+				var ret = factory.apply( undefined, arguments );
 
-		require( deps, function(){
-			var ret = factory.apply( undefined, arguments );
+				moduleInstance.state = ModuleState.COMPLETE;
+				moduleInstance.result = moduleInstance.exports = ret;
 
-			moduleInstance.state = ModuleState.COMPLETE;
-			moduleInstance.result = moduleInstance.exports = ret;
+			}, moduleInstance);
+		});
 
-		}, moduleInstance);
 	};
 
 
 
 
-	define.yAmd = {
+	Yumi.define.yAmd = {
 		muiltversion : false
 	};
 
