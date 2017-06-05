@@ -132,22 +132,6 @@
 					break;
 			}
 		},
-		fireModuleCallBack : function( module ){
-			var id = module.name,
-				deps = module.deps,
-				i, ln = deps.length,
-				result = [], depModule;
-
-			for( i=0; i<ln; i++ ){
-				depModule = globalModules[ deps[ i ] ];
-				result.push( depModule.result || depModule.exports );
-			}
-
-			module.result = module.factory.apply( /*module*/ undefined, result );
-			module.state = ModuleState.COMPLETE;
-
-			delete globalQueue[ module.name ];
-		},
 		loadResource : function( name ){
 			var id = name,
 				ret = this.getPath( name ),
@@ -302,6 +286,7 @@
 		this.url = undefined;
 		this.requireProcessor();
 	}
+	
 	/**
 	 * 当没有依赖项时，分析函数内部依赖项
 	 * @Author   草莓
