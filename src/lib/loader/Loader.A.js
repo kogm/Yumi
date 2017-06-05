@@ -59,45 +59,6 @@
 
 
 	var Commons = {
-		getPath : function( url ){
-			var ret, basePath = config.basePath,
-				parent = basePath.substring(0, basePath.lastIndexOf("/"));	//去掉最后/
-
-			if( /^(\w+)(\d)?:.*/.test( url ) ){	// 完整路径
-				ret = url;
-			} else {
-				//parent = parent.substr(0, parent.lastIndexOf("/"));
-				var tmp = url.charAt(0);
-
-				if( tmp !== "." && tmp !== "/" )	// 相对根路径 直接是模块名 define('lang')
-					ret = basePath + url;
-
-				else if( url.substring(0, 2) === "./" )	// 相对于当前路径	define("./lang")
-					ret = basePath + url.substring(2);
-				// file:///Users/Eleven/Desktop/main/main.js
-				// base : file:///Users/Eleven/Desktop/main/
-				else if( url.substring(0, 2) === "..") {	// 相对父路径	define('../app/lang')
-					ret = parent + "/" + url;	// file:///Users/Eleven/Desktop/main/../app/lang
-					while( /\/\w+\/\.\./.test( ret ) ){	// /main/..
-						ret = url.replace( /\/\w+\/\.\./, "" ); // 
-					}
-				} else if( tmp === "/" )	// 如果是当前加载器的路径
-					ret = parent + url;
-				else
-					throw new Error('can not anaylize the adress');
-			}
-			
-			var src = ret.replace(/[#?].*/, ""), ext;
-			if (/\.(css|js)$/.test(src)) { // 处理"http://113.93.55.202/mass.draggable"的情况
-	            ext = RegExp.$1;
-	        }
-	        if (!ext) { //如果没有后缀名,加上后缀名
-	            src += ".js";
-	            ext = "js";
-	        }
-
-			return src;
-		},
 		createScriptNode : function( url ){
 			var scriptEl = _document.createElement('script');
 			scriptEl.src = url;
@@ -134,7 +95,7 @@
 		},
 		loadResource : function( name ){
 			var id = name,
-				ret = this.getPath( name ),
+				ret = Yumi.require.toUrl( name ),
 				ext;
 
 			if (/\.(css|js)$/.test(ret)) { // 处理"http://113.93.55.202/mass.draggable"的情况
@@ -286,7 +247,7 @@
 		this.url = undefined;
 		this.requireProcessor();
 	}
-	
+
 	/**
 	 * 当没有依赖项时，分析函数内部依赖项
 	 * @Author   草莓
@@ -401,7 +362,45 @@
 			loadings.unshift( module.name );	// 添加到对头
 		}
 	};
-	Yumi.require.toUrl = function toUrl( url ){};
+	Yumi.require.toUrl = function toUrl( url ){
+		var ret, basePath = config.basePath,
+			parent = basePath.substring(0, basePath.lastIndexOf("/"));	//去掉最后/
+
+		if( /^(\w+)(\d)?:.*/.test( url ) ){	// 完整路径
+			ret = url;
+		} else {
+			//parent = parent.substr(0, parent.lastIndexOf("/"));
+			var tmp = url.charAt(0);
+
+			if( tmp !== "." && tmp !== "/" )	// 相对根路径 直接是模块名 define('lang')
+				ret = basePath + url;
+
+			else if( url.substring(0, 2) === "./" )	// 相对于当前路径	define("./lang")
+				ret = basePath + url.substring(2);
+			// file:///Users/Eleven/Desktop/main/main.js
+			// base : file:///Users/Eleven/Desktop/main/
+			else if( url.substring(0, 2) === "..") {	// 相对父路径	define('../app/lang')
+				ret = parent + "/" + url;	// file:///Users/Eleven/Desktop/main/../app/lang
+				while( /\/\w+\/\.\./.test( ret ) ){	// /main/..
+					ret = url.replace( /\/\w+\/\.\./, "" ); // 
+				}
+			} else if( tmp === "/" )	// 如果是当前加载器的路径
+				ret = parent + url;
+			else
+				throw new Error('can not anaylize the adress');
+		}
+		
+		var src = ret.replace(/[#?].*/, ""), ext;
+		if (/\.(css|js)$/.test(src)) { // 处理"http://113.93.55.202/mass.draggable"的情况
+            ext = RegExp.$1;
+        }
+        if (!ext) { //如果没有后缀名,加上后缀名
+            src += ".js";
+            ext = "js";
+        }
+
+		return src;
+	};
 
 
 	/**
@@ -474,7 +473,7 @@
 			// 没有依赖项，或者是默认的依赖项
 			if( moduleInstance.deps.length == 0 || moduleInstance.isDefaultDeps){
 				moduleInstance.state = ModuleState.COMPLETE;
-				moduleInstance.url = Commons.getPath( moduleInstance.fileName );
+				moduleInstance.url = Yumi.require.toUrl( moduleInstance.fileName );
 
 				var result = moduleInstance.factory( Yumi.require, moduleInstance.exports, moduleInstance.module );
 				if( !TypeUitl.isUndefined( result ) ){	// 如果有工厂函数you返回值，舍弃exports
@@ -498,7 +497,7 @@
 				}
 
 				if( TypeUitl.isUndefined( moduleInstance.url ) ){
-					moduleInstance.url = Commons.getPath( moduleInstance.fileName );
+					moduleInstance.url = Yumi.require.toUrl( moduleInstance.fileName );
 				}
 
 				NativeModule.setCache( moduleInstance.id, moduleInstance );
