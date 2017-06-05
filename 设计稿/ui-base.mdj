@@ -18998,7 +18998,7 @@
 									"_parent": {
 										"$ref": "AAAAAAFccaFtotCg4Ac="
 									},
-									"name": "加载",
+									"name": "A型加载",
 									"visible": true,
 									"defaultDiagram": false,
 									"ownedViews": [
@@ -19029,11 +19029,11 @@
 													"containerExtending": false,
 													"left": 70.97900390625,
 													"top": 5,
-													"width": 27,
+													"width": 48.6708984375,
 													"height": 13,
 													"autoResize": false,
 													"underline": false,
-													"text": "加载",
+													"text": "A型加载",
 													"horizontalAlignment": 2,
 													"verticalAlignment": 5,
 													"wordWrap": false

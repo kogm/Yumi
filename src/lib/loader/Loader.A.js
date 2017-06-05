@@ -6,7 +6,7 @@
 	 * define(id?, dependencies?, factory)
 	 */
 	
-	var Yumi = global.Yumi;	// 
+	var Yumi = global.Yumi = {};	// 
 
 	/*var hasRequire = typeof global.require === 'function';
 	var hasDefine = typeof global.define === 'function';
@@ -127,11 +127,9 @@
 			var result = null;
 
 			for( ; i < ln; i ++ ){
-				if( arr[i] ){
-					result = fn( arr[i], i, arr ) ;
-					if( result === false )
-						break;
-				}
+				result = fn( arr[i], i, arr ) ;
+				if( result === false )
+					break;
 			}
 		},
 		fireModuleCallBack : function( module ){
@@ -279,12 +277,13 @@
 	 * @param  {function}   	factory 构造函数
 	 * @param  {boolean} 		isDefaultDeps 是否是默认参数
 	 */
-	function NativeModule(name, deps, factory, isDefaultDeps){
-		this.name = name;
-		this.deps = Commons.isArray( deps ) ? deps : [];
+	function NativeModule(id, fileName, deps, factory, isDefaultDeps){
+		this.id = id;
+		this.fileName = fileName;
+		this.deps = TypeUitl.isArray( deps ) ? deps : [];
 		this.innerDeps = null;
 		this.isDefaultDeps = isDefaultDeps;
-		this.factory = Commons.isFunction( factory ) ? factory : noop;
+		this.factory = TypeUitl.isFunction( factory ) ? factory : noop;
 
 		this.state = ModuleState.INITIALIZE;	// 设置初始化状态
 		
@@ -293,14 +292,14 @@
 		
 		// module.exports = exports
 		this.module = {
-			exports : {};
+			exports : {}
 		};
 		this.exports = this.module.exports;
 		this.result = null;		// 模块执行的结果
 
 		this.sourceText = factory.toString();
 
-		this.url = "";
+		this.url = undefined;
 		this.requireProcessor();
 	}
 	/**
@@ -309,7 +308,7 @@
 	 * @DateTime 2017-06-05
 	 * @return   {[type]}   [description]
 	 */
-	NativeModule.prototype.requireProcessor = function(){
+	NativeModule.prototype.requireProcessor = function requireProcessor(){
 		// require('') | require("")
 		var requireReg = /require\(['"]([^'"]+)['"]\)/g;
 		var deps = [], result;
@@ -323,19 +322,55 @@
 
 		this.innerDeps = deps.length > 0 ? deps : null;
 	};
+	NativeModule.prototype.installModule = function installModule(){
+		var id = this.name,
+			deps = this.deps,
+			i, ln = deps.length,
+			dependencies = [], 
+			depModule,
+			result;
+
+		for( i=0; i<ln; i++ ){
+			depModule = this.dependenceProcessor( deps[ i ] );
+			dependencies.push( depModule.result || depModule.exports );
+		}
+
+		result = module.factory.apply( /*module*/ undefined, dependencies );
+		module.state = ModuleState.COMPLETE;
+
+		delete globalQueue[ module.name ];
+	};
+	NativeModule.prototype.filterDependence = function filterDependence( dep ){
+		if( dep === 'require' )	return Yumi.require;
+		if( dep === 'exports' ) return this.exports;
+		if( dep === 'module' ) return this.module;
+		return NativeModule.getCache( dep );
+	};
+
+	NativeModule.DefaultDependencies = [ "require", "exports", "module" ];
+	NativeModule.isDefaultDependence = function isDefaultDependence(dep){
+		return NativeModule.DefaultDependencies.some(function(name){
+			return name === dep;
+		});
+	};
 
 	NativeModule._cache = {};
+	NativeModule._nameToId = {};
 	NativeModule.getCache = function getCache( id ){
-		return NativeModule._cache[ id ];
+		var instance = NativeModule._cache[ id ];
+		if( !instance ){
+			id = NativeModule._nameToId[ id ];
+			instance = NativeModule._cache[ id ];
+		}
+		return instance;
 	};
 	NativeModule.setCache = function( id, instance ){
 		NativeModule._cache[ id ] = instance;
+		NativeModule._nameToId[ instance.fileName ] = id;
 	};
-	NativeModule.createModule = function createModule(id, deps, factory, isDefaultDeps){
-		if( !id ){
-			id = new Date().getTime();
-		}
-		return new NativeModule(id, deps, factory, isDefaultDeps);
+	NativeModule.createModule = function createModule(name, deps, factory, isDefaultDeps){
+		var id = new Date().getTime();
+		return new NativeModule(id, name, deps, factory, isDefaultDeps);
 	};
 
 
@@ -361,12 +396,12 @@
 		
 		if( !module ){	// 处理匿名主模块
 			var id = new Date().getTime(),
-			module = new NativeModule( id, deps, factory );
+			module = NativeModule.createModule(id, undefined, deps, factory);
 			globalQueue[ id ] = module;
 		}
 
 		Commons.forEach(module.deps, function( name, index ){	// 进行依赖模块的加载操作
-			if( globalModules[ name ] ){	// 如果曾经加载过
+			if( NativeModule.isDefaultDependence( name ) || NativeModule.getCache( name ) ){	// 如果为默认 or 曾经加载过
 				module.alreadyCount ++;
 				return ;
 			}
@@ -376,7 +411,7 @@
 		module.state = ModuleState.LOADING;	// 更改主模块状态 为正在加载中
 
 		if( module.alreadyCount === module.requireCount ){
-			Commons.fireModuleCallBack( module );
+			module.installModule();
 		} else {
 			loadings.unshift( module.name );	// 添加到对头
 		}
@@ -388,13 +423,13 @@
 	 * define前置参数过滤器
 	 * @Author   草莓
 	 * @DateTime 2017-06-05
-	 * @param    {[type]}   id       [description]
+	 * @param    {[type]}   name     [description]
 	 * @param    {[type]}   deps     [description]
 	 * @param    {[type]}   factory  [description]
 	 * @param    {Function} callback [description]
 	 * @return   {[type]}            [description]
 	 */
-	var preDefineParamFilter = function preDefineParamFilter(id, deps, factory, callback){
+	var preDefineParamFilter = function preDefineParamFilter(name, deps, factory, callback){
 		var isDefaultDeps = false;
 		/**
 		 * define('name', function(){}) 没有依赖项
@@ -402,7 +437,7 @@
 		 */
 		if( TypeUitl.isFunction( deps ) ){
 			factory = deps;
-			deps = [ "require", "exports", "module" ];	// 默认值
+			deps = NativeModule.DefaultDependencies;	// 默认值
 			isDefaultDeps = true;
 		}
 
@@ -412,21 +447,21 @@
 		 * 模块的名字应该默认为模块加载器请求的指定脚本的名字
 		 */
 		if( TypeUitl.isUndefined( deps ) ){
-			if( !TypeUitl.isFunction( id ) ){	// 第一个参数是非函数的匿名模块
+			if( !TypeUitl.isFunction( name ) ){	// 第一个参数是非函数的匿名模块
 				deps = [];
 				factory = function(){
 					return id;
 				};
 
 			} else {	// 函数匿名模块
-				deps = [ "require", "exports", "module" ];
-				factory = id;
-				id = undefined;	// 重置为匿名模块
+				deps = NativeModule.DefaultDependencies;
+				factory = name;
+				name = undefined;	// 重置为匿名模块
 				isDefaultDeps = true;
 			}
 		}
 
-		return callback( NativeModule.createModule(id, deps, factory, isDefaultDeps) );
+		return callback( NativeModule.createModule(name, deps, factory, isDefaultDeps) );
 	};
 
 	/**
@@ -438,9 +473,9 @@
 	 * @param  {function}   				factory 模块的构造函数
 	 * @return {void}           			[description]
 	 */
-	Yumi.define = function(id, deps, factory){
+	Yumi.define = function(name, deps, factory){
 
-		var cached = NativeModule.getCache[ id ];
+		var cached = NativeModule.getCache[ name ];
 		if( cached ){
 			return cached.exports || cached.result;
 		}
@@ -450,13 +485,13 @@
 		 * 代码抽取
 		 */
 
-		preDefineParamFilter(id, deps, factory, function(moduleInstance){
+		preDefineParamFilter(name, deps, factory, function(moduleInstance){
 			// 没有依赖项，或者是默认的依赖项
 			if( moduleInstance.deps.length == 0 || moduleInstance.isDefaultDeps){
 				moduleInstance.state = ModuleState.COMPLETE;
-				moduleInstance.url = Commons.getPath( moduleInstance.id );
+				moduleInstance.url = Commons.getPath( moduleInstance.fileName );
 
-				var result = moduleInstance.factory.call( Yumi.require, moduleInstance.exports, moduleInstance.module );
+				var result = moduleInstance.factory( Yumi.require, moduleInstance.exports, moduleInstance.module );
 				if( !TypeUitl.isUndefined( result ) ){	// 如果有工厂函数you返回值，舍弃exports
 					moduleInstance.result = moduleInstance.module.exports = moduleInstance.exports = result;
 				}
@@ -466,13 +501,22 @@
 				return ;
 			}
 
-			globalQueue[ id ] = moduleInstance;	//添加到全局队列里 表示有依赖项要进行加载
+			globalQueue[ moduleInstance.id ] = moduleInstance;	//添加到全局队列里 表示有依赖项要进行加载
 
-			Yumi.require( deps, function(){
+			Yumi.require(moduleInstance.deps, function(){
 				var ret = factory.apply( undefined, arguments );
 
 				moduleInstance.state = ModuleState.COMPLETE;
-				moduleInstance.result = moduleInstance.exports = ret;
+				// moduleInstance.result = moduleInstance.exports = ret;
+				if( !TypeUitl.isUndefined( ret ) ){	// 如果有工厂函数you返回值，舍弃exports
+					moduleInstance.result = moduleInstance.module.exports = moduleInstance.exports = result;
+				}
+
+				if( TypeUitl.isUndefined( moduleInstance.url ) ){
+					moduleInstance.url = Commons.getPath( moduleInstance.fileName );
+				}
+
+				NativeModule.setCache( moduleInstance.id, moduleInstance );
 
 			}, moduleInstance);
 		});
