@@ -35,6 +35,7 @@
 		loadings = [],	// 调用的顺序
 		config = {};	// 全局配置
 
+
 	/**
 	 * 模块的状态
 	 * @type {Object}
@@ -203,15 +204,97 @@
 	};	
 
 
-	config.basePath = Commons.getCurrentPath( true );
-	if( !config.basePath ){	// 取head中第一个script元素为基地址
-		config.basePath = Commons.scripts().pop().src;
-	}
-	config.basePath = config.basePath.replace(/[?#].*/, ""); // hash
-	// 得到当前脚本所在路径地址 当前脚本所在目录
-	config.basePath = config.basePath.substring( 0, config.basePath.lastIndexOf("/")+1 );
-	// console.info(config.basePath, config.basePath.substring(0, config.basePath.lastIndexOf("/")));
+	(function(){
+		var basePath = Commons.getCurrentPath( true );
 
+		if( !basePath ){	// 取head中第一个script元素为基地址
+			basePath = Commons.scripts().pop().src;
+		}
+		basePath = basePath.replace(/[?#].*/, ""); // hash
+		
+		// 得到当前脚本所在路径地址 当前脚本所在目录
+		config.basePath = basePath.substring( 0, basePath.lastIndexOf("/")+1 );
+
+		var dir = config.basePath, length = dir.length;
+		if( dir[ length - 1 ] == '/' ){	// 如果最后一个是/，取/上一级目录，否则取当前目录
+			dir = dir.substring( 0, dir.lastIndexOf("/") );
+		}
+		dir = dir.substring( dir.lastIndexOf("/") + 1 );
+
+		config.fileTree = {
+			path : dir,
+			isBath : true,
+			files : {},
+			childs : {}
+		};
+		config.root = config.fileTree;
+	})();
+	
+
+	function buildFileTree( url, instance ){
+		var basePath = config.basePath, restPath;
+		var fileName = url.substring( url.lastIndexOf("/") + 1 );
+		var fileTree = config.fileTree;
+
+		url = url.substring( 0, url.lastIndexOf("/") );	// 去掉文件名称
+
+		if( url.length <= basePath.length ){	// 在base路径之前
+			restPath = basePath.substring( url.length );
+			restPath = restPath.split("/").filter(function(name){
+				return name != '';
+			});
+
+			if( !restPath.length ){	// 当前目录
+				fileTree.files[ fileName ] = instance;
+			}else {
+				// file:///D:/Yumi/src/lib/loader/	file:///D:/Yumi/src  	[lib, loader]
+				var index = restPath.length - 1, fileNode = null;
+				if( restPath[ index ] === fileTree.path ){	// 避免被覆盖
+					index --;
+				}
+				for( ; index >= 0; index--){
+					fileNode = {
+						path : restPath[ index ],
+						isBath : false,
+						files : {},
+						parent : null,
+						childs : {}
+					};
+					fileNode.childs[ fileTree.path ] = fileTree;
+					fileTree.parent = fileNode;
+					fileTree = fileNode;
+				}
+				fileTree.files[ fileName ] = instance;
+				config.root = fileTree;
+			}
+
+		}else{	// base路径之后
+			restPath = url.substring( basePath.length );
+			restPath = restPath.split("/").filter(function(name){
+				return name != '';
+			});
+
+			restPath.forEach(function( name ){
+				if( !fileTree.childs[ name ] ){
+					var fileNode = {
+						path : name,
+						isBath : false,
+						files : {},
+						parent : fileTree,	// 父节点关系
+						childs : {}
+					};
+					fileTree.childs[ name ] = fileNode;	// 构造子节点关系
+					fileTree = fileNode;
+				}else{
+					fileTree = fileTree.childs[ name ];
+				}
+			});
+			if( fileTree ){
+				fileTree.files[ fileName ] = instance;
+			}
+		}
+		return url;
+	}
 
 	/**
 	 * 模块定义，在定义时构造出来
@@ -277,7 +360,7 @@
 			result;
 
 		for( i=0; i<ln; i++ ){
-			depModule = this.dependenceProcessor( deps[ i ] );
+			depModule = this.filterDependence( deps[ i ] );
 			dependencies.push( depModule.result || depModule.exports );
 		}
 
@@ -382,7 +465,7 @@
 			else if( url.substring(0, 2) === "..") {	// 相对父路径	define('../app/lang')
 				ret = parent + "/" + url;	// file:///Users/Eleven/Desktop/main/../app/lang
 				while( /\/\w+\/\.\./.test( ret ) ){	// /main/..
-					ret = url.replace( /\/\w+\/\.\./, "" ); // 
+					ret = ret.replace( /\/\w+\/\.\./, "" ); // 
 				}
 			} else if( tmp === "/" )	// 如果是当前加载器的路径
 				ret = parent + url;
@@ -474,6 +557,8 @@
 			if( moduleInstance.deps.length == 0 || moduleInstance.isDefaultDeps){
 				moduleInstance.state = ModuleState.COMPLETE;
 				moduleInstance.url = Yumi.require.toUrl( moduleInstance.fileName );
+				
+				buildFileTree( moduleInstance.url, moduleInstance );
 
 				var result = moduleInstance.factory( Yumi.require, moduleInstance.exports, moduleInstance.module );
 				if( !TypeUitl.isUndefined( result ) ){	// 如果有工厂函数you返回值，舍弃exports
@@ -504,10 +589,7 @@
 
 			}, moduleInstance);
 		});
-
 	};
-
-
 
 
 	Yumi.define.yAmd = {

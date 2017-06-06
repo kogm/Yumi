@@ -5,10 +5,18 @@
 		console.info(a);
 	});*/
 	
-	Yumi.define('test', function(require, exports, module){
-		console.info('test', exports, module);
+	Yumi.define('test1', function(require, exports, module){
+		// console.info('test', exports, module);
 		return function(){
 			console.info('test');
 		}
 	});
+
+	Yumi.define('../../test2', function(){});
+
+	Yumi.define('a/test3', function(){});
+	Yumi.define('a/b/test4', function(){});
+
+	Yumi.define('a/c/test5', function(){});
+
 </script>
