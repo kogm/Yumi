@@ -4,6 +4,8 @@
 	// https://github.com/amdjs/amdjs-api/blob/master/AMD.md
 	/**
 	 * define(id?, dependencies?, factory)
+	 * require(String)
+	 * require(Array, function(){})
 	 */
 	
 	var Yumi = global.Yumi = {};	// 
@@ -50,6 +52,9 @@
 		isArray : Array.isArray || function( _arr ){
 			return oString.call( _arr ) === '[object Array]';
 		},
+		isString : function( str ){
+			return typeof str === 'string' || oString.call( str ) === '[object String]';
+		},
 		isFunction : function( _fn ){
 			return typeof _fn === 'function';
 		},
@@ -94,9 +99,8 @@
 					break;
 			}
 		},
-		loadResource : function( name ){
-			var id = name,
-				ret = Yumi.require.toUrl( name ),
+		loadResource : function( id, name ){
+			var ret = Yumi.require.toUrl( name ),
 				ext;
 
 			if (/\.(css|js)$/.test(ret)) { // 处理"http://113.93.55.202/mass.draggable"的情况
@@ -104,14 +108,15 @@
 	        }
 
 	        if( ext === "js" ){
-	        	this.loadJS( ret, name );
+	        	this.loadJS( ret, name, id );
 	        } else {
 	        	this.loadCSS( ret );
 	        }
 		},
-		loadJS : function( src, name ){
+		loadJS : function( src, name, id ){
 			var node = Commons.createScriptNode( src );
 			node.setAttribute("data-loadName", name );
+			node.setAttribute("data-loadId", id);
 
 			if( node.attachEvent ){
 				node.attachEvent( "onreadystatechange", Commons.onScriptLoaded );
@@ -157,30 +162,34 @@
 
 			return {
 				name : node.getAttribute("data-loadName"),
+				id : node.getAttribute("data-loadId"),
 				node : node
 			}
 		},
 		onScriptLoaded : function( evt ){
-			//if( evt.type == "load" && ( readyRegExp.test( (evt.currentTarget || evt.srcElement).readyState ) ) ){
+			if( evt.type == "load" || ( readyRegExp.test( (evt.currentTarget || evt.srcElement).readyState ) ) ){
 				var data = Commons.getScriptData( evt );
-				var module = globalModules[ data.name ];
+				var module = globalQueue[ data.id ];
 				/*if( module.alreadyCount === module.requireCount )
 					module.state = 2;*/
+				module.fileName = data.name;
 				Commons.completeLoad();
-			//}
+			}
 		},
 		completeLoad : function(){
 			//检测此JS模块的依赖是否都已安装完毕,是则安装自身
 	        loop:
 		        for (var i = loadings.length, id; id = loadings[--i]; ) {
 		            var module = globalQueue[ id ],	// 取模块
-		                deps = module.deps;	// 取该模块的依赖项
+		                deps = module.deps,	// 取该模块的依赖项
 		                depLen = deps.length,
+		                dep, depModule,
 		                j = 0;
 		            
 		            for ( j=0 ; j<depLen; j++ ) {	// 遍历依赖模块，并判断依赖模块的状态
-		            	var dep = deps[ j ];
-		                if ( !globalModules[ dep ] || globalModules[ dep ].state !== ModuleState.COMPLETE) {	//跳过没有加载完成的依赖
+		            	dep = deps[ j ];	// 拿到的只是文件名称，需要遍历以获取安装的模块------
+		            	depModule = NativeModule.getCache( dep ); 
+		                if ( !depModule || depModule.state !== ModuleState.COMPLETE) {	//跳过没有加载完成的依赖
 		                	continue loop;
 		                }
 		            }
@@ -188,7 +197,7 @@
 		            //如果deps是空对象或者其依赖的模块的状态都是2
 		            if ( module.state !== ModuleState.COMPLETE ) {	// 如果当前模块的状态不是2，而依赖完成
 		                loadings.splice( i, 1 ); //必须先移除再安装，防止在IE下DOM树建完后手动刷新页面，会多次执行它
-		                Commons.fireModuleCallBack( module );
+		                module.installModule();
 		                Commons.completeLoad();//如果成功,则再执行一次,以防有些模块就差本模块没有安装好
 		            }
 
@@ -309,8 +318,8 @@
 		this.id = id;
 		this.fileName = fileName;
 		this.deps = TypeUitl.isArray( deps ) ? deps : [];
-		this.innerDeps = null;
-		this.isDefaultDeps = isDefaultDeps;
+		this.innerDeps = null;	// 函数体内部依赖
+		this.isDefaultDeps = isDefaultDeps;	// 是否是默认依赖
 		this.factory = TypeUitl.isFunction( factory ) ? factory : noop;
 
 		this.state = ModuleState.INITIALIZE;	// 设置初始化状态
@@ -328,7 +337,9 @@
 		this.sourceText = factory.toString();
 
 		this.url = undefined;
-		this.requireProcessor();
+
+		this.hasRequireDep = false;	// 依赖项中是否含有require, 如果有要进行函数体解析
+		this.isAnaylized = false;	// 是否已经解析过函数体
 	}
 
 	/**
@@ -352,8 +363,7 @@
 		this.innerDeps = deps.length > 0 ? deps : null;
 	};
 	NativeModule.prototype.installModule = function installModule(){
-		var id = this.name,
-			deps = this.deps,
+		var deps = this.deps,
 			i, ln = deps.length,
 			dependencies = [], 
 			depModule,
@@ -364,16 +374,23 @@
 			dependencies.push( depModule.result || depModule.exports );
 		}
 
-		result = module.factory.apply( /*module*/ undefined, dependencies );
-		module.state = ModuleState.COMPLETE;
+		result = this.factory.apply( /*module*/ undefined, dependencies );
+		this.state = ModuleState.COMPLETE;
 
-		delete globalQueue[ module.name ];
+		delete globalQueue[ this.id ];
 	};
 	NativeModule.prototype.filterDependence = function filterDependence( dep ){
 		if( dep === 'require' )	return Yumi.require;
 		if( dep === 'exports' ) return this.exports;
 		if( dep === 'module' ) return this.module;
 		return NativeModule.getCache( dep );
+	};
+	NativeModule.prototype.setRequireDependence = function(){
+		this.hasRequireDep = true;	
+		if( !this.isAnaylized ){
+			this.requireProcessor();
+			this.isAnaylized = true;
+		}
 	};
 
 	NativeModule.DefaultDependencies = [ "require", "exports", "module" ];
@@ -385,6 +402,7 @@
 
 	NativeModule._cache = {};
 	NativeModule._nameToId = {};
+	// 需要进行改写 遍历树结构
 	NativeModule.getCache = function getCache( id ){
 		var instance = NativeModule._cache[ id ];
 		if( !instance ){
@@ -415,26 +433,34 @@
 	 * 	require(array, function)
 	 */
 	Yumi.require = function( deps, factory, module){
-		if( Commons.isFunction( deps ) ){		// 修正参数
+		if( TypeUitl.isFunction( deps ) ){		// 修正参数
 			factory = deps;
 			deps = [];
 		}
-		if( !deps.length ){	// 没有依赖项的直接调用
+
+		if( TypeUitl.isArray( deps ) && !deps.length ){	// 没有依赖项的直接调用
 			return factory();
 		}
 		
+		// 兼容函数体内部 var module = require('module');
+		if( TypeUitl.isString( deps ) ){
+			return Native.getCache( deps );
+		}
+
 		if( !module ){	// 处理匿名主模块
-			var id = new Date().getTime(),
-			module = NativeModule.createModule(id, undefined, deps, factory);
-			globalQueue[ id ] = module;
+			module = NativeModule.createModule(undefined, deps, factory);
+			globalQueue[ module.id ] = module;
 		}
 
 		Commons.forEach(module.deps, function( name, index ){	// 进行依赖模块的加载操作
 			if( NativeModule.isDefaultDependence( name ) || NativeModule.getCache( name ) ){	// 如果为默认 or 曾经加载过
+				if( name === 'require' ){
+					module.setRequireDependence( true );
+				}
 				module.alreadyCount ++;
 				return ;
 			}
-			Commons.loadResource( name );	// 否则需要进行加载
+			Commons.loadResource( module.id, name );	// 否则需要进行加载
 		});
 
 		module.state = ModuleState.LOADING;	// 更改主模块状态 为正在加载中
@@ -442,7 +468,7 @@
 		if( module.alreadyCount === module.requireCount ){
 			module.installModule();
 		} else {
-			loadings.unshift( module.name );	// 添加到对头
+			loadings.unshift( module.id );	// 添加到对头
 		}
 	};
 	Yumi.require.toUrl = function toUrl( url ){
@@ -541,7 +567,7 @@
 	 * @return {void}           			[description]
 	 */
 	Yumi.define = function(name, deps, factory){
-
+		// *TODO 考虑代码位置问题
 		var cached = NativeModule.getCache[ name ];
 		if( cached ){
 			return cached.exports || cached.result;
@@ -585,6 +611,7 @@
 					moduleInstance.url = Yumi.require.toUrl( moduleInstance.fileName );
 				}
 
+				buildFileTree( moduleInstance.url, moduleInstance );
 				NativeModule.setCache( moduleInstance.id, moduleInstance );
 
 			}, moduleInstance);
