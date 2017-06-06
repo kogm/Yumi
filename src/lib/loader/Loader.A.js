@@ -163,16 +163,16 @@
 			return {
 				name : node.getAttribute("data-loadName"),
 				id : node.getAttribute("data-loadId"),
+				url : node.getAttribute("src"),
 				node : node
 			}
 		},
 		onScriptLoaded : function( evt ){
 			if( evt.type == "load" || ( readyRegExp.test( (evt.currentTarget || evt.srcElement).readyState ) ) ){
 				var data = Commons.getScriptData( evt );
-				var module = globalQueue[ data.id ];
-				/*if( module.alreadyCount === module.requireCount )
-					module.state = 2;*/
-				module.fileName = data.name;
+				var module = globalQueue[ data.id ];	// 取当前require的任务id 表示该任务的某个依赖项已经加载完成
+
+				// module.fileName = data.name;	// 获取加载fileName，则可以分析获得fileTree中的
 				Commons.completeLoad();
 			}
 		},
@@ -180,7 +180,7 @@
 			//检测此JS模块的依赖是否都已安装完毕,是则安装自身
 	        loop:
 		        for (var i = loadings.length, id; id = loadings[--i]; ) {
-		            var module = globalQueue[ id ],	// 取模块
+		            var module = globalQueue[ id ],	// 取任务
 		                deps = module.deps,	// 取该模块的依赖项
 		                depLen = deps.length,
 		                dep, depModule,
@@ -343,7 +343,7 @@
 	}
 
 	/**
-	 * 当没有依赖项时，分析函数内部依赖项
+	 * 当没有依赖项时，分析函数内部依赖项 [注意只需要匹配 require(string) 形式]
 	 * @Author   草莓
 	 * @DateTime 2017-06-05
 	 * @return   {[type]}   [description]
@@ -413,7 +413,7 @@
 	};
 	NativeModule.setCache = function( id, instance ){
 		NativeModule._cache[ id ] = instance;
-		NativeModule._nameToId[ instance.fileName ] = id;
+		// NativeModule._nameToId[ instance.fileName ] = id;	// 这里name可能不对
 	};
 	NativeModule.createModule = function createModule(name, deps, factory, isDefaultDeps){
 		var id = new Date().getTime();
@@ -460,6 +460,7 @@
 				module.alreadyCount ++;
 				return ;
 			}
+			buildFileTree( Yumi.require.toUrl( name ) );	// 注意：在require时，构造树
 			Commons.loadResource( module.id, name );	// 否则需要进行加载
 		});
 
@@ -568,10 +569,11 @@
 	 */
 	Yumi.define = function(name, deps, factory){
 		// *TODO 考虑代码位置问题
-		var cached = NativeModule.getCache[ name ];
+		/*var cached = NativeModule.getCache[ name ];
 		if( cached ){
 			return cached.exports || cached.result;
-		}
+		}*/
+
 		/**
 		 * TODO 遗留问题
 		 * 匿名模块id更换和名称对应
@@ -582,9 +584,12 @@
 			// 没有依赖项，或者是默认的依赖项
 			if( moduleInstance.deps.length == 0 || moduleInstance.isDefaultDeps){
 				moduleInstance.state = ModuleState.COMPLETE;
-				moduleInstance.url = Yumi.require.toUrl( moduleInstance.fileName );
+
+				if( TypeUitl.isUndefined( moduleInstance.url ) ){	// 此处URL可能正确 所以需要判断
+					moduleInstance.url = Yumi.require.toUrl( moduleInstance.fileName );
+				}	
 				
-				buildFileTree( moduleInstance.url, moduleInstance );
+				// buildFileTree( moduleInstance.url, moduleInstance );
 
 				var result = moduleInstance.factory( Yumi.require, moduleInstance.exports, moduleInstance.module );
 				if( !TypeUitl.isUndefined( result ) ){	// 如果有工厂函数you返回值，舍弃exports
@@ -611,7 +616,7 @@
 					moduleInstance.url = Yumi.require.toUrl( moduleInstance.fileName );
 				}
 
-				buildFileTree( moduleInstance.url, moduleInstance );
+				// buildFileTree( moduleInstance.url, moduleInstance );
 				NativeModule.setCache( moduleInstance.id, moduleInstance );
 
 			}, moduleInstance);
